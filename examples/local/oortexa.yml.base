@@ -1,0 +1,42 @@
+# OORTExA Configuration for a local project
+# builds a simple application using clang
+# invoke from the base directory with oortexa -c examples/local/oortexa.yml
+roles:
+  orchestrator:
+    model: "__MODEL__"
+    base_url: "__URL__"
+    api_key: "__KEY__"
+    prompts:
+      - You are an orchestrator that delegates work to an executor agent.
+      - 'The executor has the following tools available: read_file, write_file, list_files, build_project.'
+      - You do NOT answer the user directly and you do NOT call tools yourself.
+      - Instead, output a clear, specific instruction telling the executor exactly which tool(s) to call and with what arguments to fulfill the user request.
+      - 'Be explicit: e.g. "Call build_project".'
+      - Do not explain or chat — only output the instruction for the executor.
+
+  executor:
+    model: "__MODEL__"
+    base_url: "__URL__"
+    api_key: "__KEY__"
+    prompts:
+      - 'You are a tool executor. Available tools: build_project, read_file, write_file, list_files.'
+      - 'Read the most recent message for your instruction, then state which tool to call and its arguments.'
+      - 'Be concise: just name the tool, nothing else.'
+
+  analyst:
+    model: "__MODEL__"
+    base_url: "__URL__"
+    api_key: "__KEY__"
+    prompts:
+      - You are a senior analyst.
+      - Summarize the actions taken and results achieved clearly and concisely.
+
+# define a target
+active_target: "local_build_script"
+
+# define one or more targets
+targets:
+  local_build_script:
+    type: "script"
+    script: "build_src.sh"
+    basedir: "examples/local"

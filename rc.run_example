@@ -1,0 +1,35 @@
+#!/bin/bash -e
+
+example_name=$1
+if [ -z "$example_name" ]; then
+  echo "Usage: $0 (example_name|list)"
+  exit 1
+fi
+
+if [ "list" == "$example_name" ]; then
+  echo "Examples:"
+  find examples -name oortexa.yml.base -print | \
+    while read oortexa_filepath; do
+      oortexa_path=`dirname ${oortexa_filepath}`;
+      example_name=`basename ${oortexa_path}`;
+      echo "$example_name";
+    done
+  exit 0
+fi
+
+if [ -d .venv ]; then
+  source .venv/bin/activate
+else
+  python3 -m venv .venv
+  source .venv/bin/activate
+  pip install -e .
+fi
+
+if [ -f "./examples/${example_name}/setup.sh" ]; then
+  pushd "./examples/${example_name}"
+  echo "Running setup!"
+  ./setup.sh
+  popd
+fi
+
+python3 -moortexa --config "./examples/${example_name}/oortexa.yml" --prompt "build the example and report any issues"
