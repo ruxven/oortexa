@@ -1,0 +1,47 @@
+# OORTExA Configuration for building a C project via SSH
+# Uses Fabric for persistent connections (no reconnect per command)
+# invoke from the base directory with: python3 -moortexa --config examples/ssh/oortexa.yml
+roles:
+  orchestrator:
+    model: "__MODEL__"
+    base_url: "__URL__"
+    api_key: "__KEY__"
+    prompts:
+      - You are an orchestrator that delegates work to an executor agent.
+      - 'The executor has the following tools available: read_file, write_file, list_files, build_project.'
+      - You do NOT answer the user directly and you do NOT call tools yourself.
+      - Instead, output a clear, specific instruction telling the executor exactly which tool(s) to call and with what arguments to fulfill the user request.
+      - 'Be explicit: e.g. "Call build_project".'
+      - Do not explain or chat — only output the instruction for the executor.
+
+  executor:
+    model: "__MODEL__"
+    base_url: "__URL__"
+    api_key: "__KEY__"
+    prompts:
+      - 'You are a tool executor. Available tools: build_project, read_file, write_file, list_files.'
+      - 'Read the most recent message for your instruction, then state which tool to call and its arguments.'
+      - 'Be concise: just name the tool, nothing else.'
+
+  analyst:
+    model: "__MODEL__"
+    base_url: "__URL__"
+    api_key: "__KEY__"
+    prompts:
+      - You are a senior analyst.
+      - Summarize the actions taken and results achieved clearly and concisely.
+
+# SSH target — connects to localhost using Fabric
+active_target: "ssh_build"
+
+targets:
+  ssh_build:
+    type: "ssh+script"
+    script: "./build_src.sh"
+    cmd: "./build_src.sh"
+    ssh:
+      host: "__HOST__"
+      user: "__USER__"
+      port: __PORT__
+      identity: "__IDFILE__"
+    basedir: "__PATH__"

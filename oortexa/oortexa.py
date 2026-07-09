@@ -14,6 +14,9 @@ from langgraph.graph import StateGraph, END, START
 from langgraph.prebuilt import ToolNode
 from oortexa.abstract_tools import abstract_tools, ToolContext
 
+import logging
+_logger = logging.getLogger("oortexa")
+
 # State
 class GraphState(TypedDict):
     messages: Annotated[List[BaseMessage], lambda x, y: x + y]
@@ -181,7 +184,9 @@ async def main():
     parser.add_argument("--config", type=str, default="oortexa.yml", help="Path to YAML configuration file")
     parser.add_argument("--debug", action="store_true", help="Enable LangChain debug logging for LLM calls")
     args = parser.parse_args()
-    set_debug(args.debug)
+    if args.debug:
+        set_debug(True)
+        logging.basicConfig(level=logging.DEBUG)
     
     if not os.path.exists(args.config):
         print(f"Error: Config file {args.config} not found.")

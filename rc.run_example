@@ -32,4 +32,5 @@ if [ -f "./examples/${example_name}/setup.sh" ]; then
   popd
 fi
 
+echo "Running OORTExA..."
 python3 -moortexa --config "./examples/${example_name}/oortexa.yml" --prompt "build the example and report any issues"
