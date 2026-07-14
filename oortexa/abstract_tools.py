@@ -17,15 +17,16 @@ class Target(Protocol):
 class BaseTarget:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
-        # Use the relative path from the config root if it's not an absolute path inside the container
         self.script_path = config.get("script")
+        self.cmd_override = config.get("cmd")
         self.basedir = config.get("basedir")
 
     def _prepare_cmd(self, cmd: str) -> str:
-        # If cmd is 'make' and a script is defined, prioritize the script.
-        # This allows polymorphic behavior where build_project() invokes the script.
-        if cmd == "make" and self.script_path:
-            return f"bash {self.script_path}"
+        if cmd == "make":
+            if self.cmd_override:
+                return self.cmd_override
+            if self.script_path:
+                return f"bash {self.script_path}"
         return cmd
 
 class LocalTarget(BaseTarget):
@@ -72,12 +73,7 @@ class ContainerWrapper:
         self.c_args = self.cfg.get("args", [])
 
     def run(self, cmd: str, input_data: Optional[str] = None) -> Dict[str, Any]:
-        # Perform script replacement BEFORE wrapping.
-        # This ensures that if cmd='make' and script='./build.sh', we wrap 'bash ./build.sh'
-        if cmd == "make" and self.config.get("script"):
-            exec_cmd = f"bash {self.config.get('script')}"
-        else:
-            exec_cmd = cmd
+        exec_cmd = self.inner._prepare_cmd(cmd)
 
         target_ref = self.c_name if self.c_mode == "exec" else self.c_image
         wrapped_cmd = f"{self.c_tool} {self.c_mode} {' '.join(self.c_args)} {target_ref} bash -c {shlex.quote(exec_cmd)}"
@@ -94,10 +90,7 @@ class ComposeWrapper:
         self.prefix = f"{self.tool} -f {compose_file}" if compose_file else self.tool
 
     def run(self, cmd: str, input_data: Optional[str] = None) -> Dict[str, Any]:
-        if cmd == "make" and self.config.get("script"):
-            exec_cmd = f"bash {self.config.get('script')}"
-        else:
-            exec_cmd = cmd
+        exec_cmd = self.inner._prepare_cmd(cmd)
 
         wrapped = f"{self.prefix} {self.mode} {self.service} bash -c {shlex.quote(exec_cmd)}"
         return self.inner.run(wrapped, input_data)
@@ -197,13 +190,29 @@ def _run_cmd(cmd: str, input_data: str = None):
     return target.run(cmd, input_data)
 
 @tool
-def read_file(path: str):
-    """Read a file from the target project environment."""
-    return _run_cmd(f"cat {shlex.quote(path)}")
+def oortexa_bash(command: str):
+    """Execute an arbitrary bash command in the target environment."""
+    return _run_cmd(command)
 
 @tool
-def write_file(path: str, content: str):
-    """Write or overwrite a file in the target project environment."""
+def oortexa_read(path: str, offset: Optional[int] = None, limit: Optional[int] = None):
+    """Read a file with optional offset and limit (line numbers, 1-indexed)."""
+    if offset is not None and limit is not None:
+        cmd = f"sed -n '{offset},{offset+limit-1}p' {shlex.quote(path)}"
+    elif offset is not None:
+        cmd = f"tail -n +{offset} {shlex.quote(path)}"
+    elif limit is not None:
+        cmd = f"head -n {limit} {shlex.quote(path)}"
+    else:
+        cmd = f"cat {shlex.quote(path)}"
+    return _run_cmd(cmd)
+
+@tool
+def oortexa_write(path: str, content: str):
+    """Write content to a file, ensuring the parent directory exists."""
+    dir_path = os.path.dirname(path)
+    if dir_path:
+        _run_cmd(f"mkdir -p {shlex.quote(dir_path)}")
     cmd = f"python3 -c 'import sys; open(sys.argv[1], \"w\").write(sys.stdin.read())' {shlex.quote(path)}"
     res = _run_cmd(cmd, input_data=content)
     return {
@@ -212,40 +221,41 @@ def write_file(path: str, content: str):
     }
 
 @tool
-def list_files(path: str = "."):
+def oortexa_ls(path: str = "."):
     """List files in the target project directory."""
     return _run_cmd(f"ls -F {shlex.quote(path)}")
 
 @tool
-def build_project(command: str = "make"):
-    """Run a build command (like make, npm build, etc) in the project environment."""
-    return _run_cmd(command)
-
-abstract_tools = [read_file, write_file, list_files, build_project]
+def oortexa_grep(pattern: str, path: str = "."):
+    """Search for a pattern in the target project directory (recursive)."""
+    return _run_cmd(f"grep -rnE {shlex.quote(pattern)} {shlex.quote(path)}")
 
 @tool
-def read_file(path: str):
-    """Read a file from the target project environment."""
-    return _run_cmd(f"cat {shlex.quote(path)}")
+def oortexa_glob(pattern: str):
+    """Find files matching a glob pattern in the target environment."""
+    # Using find for glob-like behavior that is generally available
+    return _run_cmd(f"find . -path {shlex.quote(pattern)}")
 
 @tool
-def write_file(path: str, content: str):
-    """Write or overwrite a file in the target project environment."""
-    cmd = f"python3 -c 'import sys; open(sys.argv[1], \"w\").write(sys.stdin.read())' {shlex.quote(path)}"
-    res = _run_cmd(cmd, input_data=content)
-    return {
-        "success": res["exit_code"] == 0,
-        "stderr": res["stderr"]
-    }
+def oortexa_write_retrospective(filename: str, content: str):
+    """Write a retrospective report to the local retrospective directory."""
+    retro_dir = ToolContext._config.get("retrospective_dir", "retrospectives")
+    if not os.path.isabs(retro_dir):
+        # Make relative to CWD of the oortexa process
+        retro_dir = os.path.abspath(retro_dir)
+    
+    if not os.path.exists(retro_dir):
+        os.makedirs(retro_dir, exist_ok=True)
+    
+    full_path = os.path.join(retro_dir, filename)
+    try:
+        with open(full_path, "w") as f:
+            f.write(content)
+        return {"success": True, "path": full_path}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
-@tool
-def list_files(path: str = "."):
-    """List files in the target project directory."""
-    return _run_cmd(f"ls -F {shlex.quote(path)}")
-
-@tool
-def build_project(command: str = "make"):
-    """Run a build command (like make, npm build, etc) in the project environment."""
-    return _run_cmd(command)
-
-abstract_tools = [read_file, write_file, list_files, build_project]
+abstract_tools = [
+    oortexa_bash, oortexa_read, oortexa_write, oortexa_ls, oortexa_grep, oortexa_glob,
+    oortexa_write_retrospective
+]

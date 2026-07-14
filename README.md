@@ -41,7 +41,7 @@ python3 -m oortexa --config examples/local/oortexa.yml \
   --prompt "Build the project and report any issues."
 ```
 
-The example builds a small C program (`examples/local/local_demo.c`) using `clang` via the `build_project` tool.
+The example builds a small C program (`examples/local/local_demo.c`) using `clang` via the `oortexa_bash` tool.
 
 ---
 
