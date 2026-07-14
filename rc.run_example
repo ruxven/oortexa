@@ -32,5 +32,10 @@ if [ -f "./examples/${example_name}/setup.sh" ]; then
   popd
 fi
 
+debug_arg=""
+if [[ DEBUG -eq 1 ]]; then
+  debug_arg="--debug"
+fi
+
 echo "Running OORTExA..."
-python3 -moortexa --config "./examples/${example_name}/oortexa.yml" --prompt "build the example and report any issues"
+python3 -moortexa $debug_arg --config "./examples/${example_name}/oortexa.yml" --prompt "build the example and report any issues"
