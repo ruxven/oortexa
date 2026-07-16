@@ -7,32 +7,23 @@ roles:
     base_url: "__URL__"
     api_key: "__KEY__"
     prompts:
-      - You are an orchestrator that delegates work to an executor agent.
-      - 'The executor has the following tools available: oortexa_bash, oortexa_read, oortexa_write, oortexa_ls, oortexa_grep, oortexa_glob.'
-      - You do NOT answer the user directly and you do NOT call tools yourself.
-      - Instead, output a clear, specific instruction telling the executor exactly which tool(s) to call and with what arguments to fulfill the user request.
-      - 'Be explicit: e.g. "Call oortexa_bash".'
-      - Do not explain or chat — only output the instruction for the executor.
+      - ../prompts/orchestrator.md
+      - ../prompts/executor_tools.md
 
   executor:
     model: "__MODEL__"
     base_url: "__URL__"
     api_key: "__KEY__"
     prompts:
-      - 'You are a tool executor. Available tools: oortexa_bash, oortexa_read, oortexa_write, oortexa_ls, oortexa_grep, oortexa_glob.'
-      - 'Read the most recent message for your instruction, then state which tool to call and its arguments.'
-      - 'Be concise: just name the tool, nothing else.'
+      - ../prompts/executor.md
+      - ../prompts/executor_tools.md
 
   analyst:
     model: "__MODEL__"
     base_url: "__URL__"
     api_key: "__KEY__"
     prompts:
-      - You are a senior analyst.
-      - Summarize the actions taken and results achieved clearly and concisely.
-      - 'Use the tool oortexa_write_retrospective to save your final analysis to a file.'
-      - 'State which tool to call and its arguments.'
-      - 'Be concise: just name the tool, nothing else.'
+      - ../prompts/analyst.md
 
 # Retrospective directory — where analyst reports are stored locally
 retrospective_dir: "retrospectives"
@@ -43,6 +34,4 @@ active_target: "local_build_script"
 # define one or more targets
 targets:
   local_build_script:
-    type: "script"
-    script: "build_src.sh"
     basedir: "examples/local"

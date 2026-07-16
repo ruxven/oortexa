@@ -5,3 +5,4 @@ __pycache__/
 config.env
 *.o
 *.egg-info/
+*.log.txt

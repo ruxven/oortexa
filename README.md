@@ -1,23 +1,25 @@
-# OORTExA — Orchestrated Operations for Remote Tasking and Execution Agent
+# OORTExA — Orchestrated Operations for Remote Tasking & Execution Agent
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python >=3.10](https://img.shields.io/badge/python-%3E%3D3.10-blue)](pyproject.toml)
 
-A **LangGraph**-based orchestration framework for collaborative development workflows using heterogeneous LLMs and containerized execution environments.
+OORTExA is a Python-based orchestration framework for collaborative development. It doesn't rely on a single monolithic model; instead, it uses LangGraph to coordinate three distinct roles across heterogeneous LLMs & execution environments.
 
 ---
 
 ## Architecture
 
-OORTExA uses a tripartite graph architecture:
+OORTExA uses a tripartite graph architecture to separate reasoning from action:
 
-- **Orchestrator Node** — High-level reasoning model that plans strategy and routes tasks.
-- **Tool-calling Executor Node** — Engineering-focused model that performs actions using abstracted tools.
-- **Analyst Node** — Summarizes results and performs final verification.
+- **Orchestrator Node**: A high-level model that plans strategy & routes tasks.
+- **Tool-calling Executor Node**: An engineering-focused model that performs actions using abstracted tools.
+- **Analyst Node**: Summarizes results & performs final verification.
 
 ---
 
 ## Installation
+
+Standard installation requires Python 3.10 or higher. You'll need LangGraph & Fabric for core orchestration:
 
 ```bash
 python3 -m venv .venv
@@ -30,104 +32,65 @@ pip install -e .
 
 ## Quickstart
 
-Try the included local example:
+The included local example runs a build script that prints the working directory and basic kernel information (i.e., `pwd` and `uname`).
+Running the example setup script will ask a few questions to generate the `oortexa.yml` file from the template `oortexa.yml.base`.
 
 ```bash
-# Run the example setup to generate oortexa.yml (prompts for model/endpoint)
-bash rc.run_example local
+# Run the example setup to generate oortexa.yml
+bash rc.setup_example local
 
-# Or manually:
+# Once the example is configured, Execute task:
 python3 -m oortexa --config examples/local/oortexa.yml \
-  --prompt "Build the project and report any issues."
+  --prompt "Build the project & report any issues."
 ```
-
-The example builds a small C program (`examples/local/local_demo.c`) using `clang` via the `oortexa_bash` tool.
 
 ---
 
 ## Configuration
 
-OORTExA is configured via a `oortexa.yml` file. It supports heterogeneous LLM providers and multiple execution targets.
+Control OORTExA via `oortexa.yml`. Each node in the graph can point to a different provider, cost center, or capability profile.
 
 ### Heterogeneous LLM Setup
 
-Each role can specify its own model, endpoint, and API key. Local models (e.g., via LM Studio) can handle tool execution while cloud models (e.g., OpenAI) handle orchestration.
+You don't have to use expensive cloud models for every step.
+Local models running via LM Studio at `http://localhost:1234` can handle file operations while a larger GPT-4o instance manages the high-level plan.
 
 ```yaml
 roles:
   orchestrator:
     model: "gpt-4o"
     base_url: "https://api.openai.com/v1"
-    api_key: "${OPENAI_API_KEY}"       # Use env vars instead of inline keys
+    api_key: "${OPENAI_API_KEY}"
     prompts: ["prompts/orchestrator/"]
   executor:
     model: "llama-3.1"
     base_url: "http://localhost:1234/v1"
     api_key: "lm-studio"
     prompts: ["You are a tool executor..."]
-  analyst:
-    model: "meta-llama/llama-3.1-70b-instruct"
-    base_url: "http://remote-server:8000/v1"
-    prompts: ["analyst_prompts/"]
 ```
 
 ### Execution Targets
 
-The `targets` section defines where tools actually run. Switch between them by setting `active_target` or the `OORTEXA_TARGET` env var.
+OORTExA moves tool execution to where the code lives.
+Setting the `active_target` or the `OORTEXA_TARGET` environment variable switches the entire toolset from local execution to containerized or remote SSH environments.
 
-```yaml
-active_target: "local"
-
-targets:
-  local:
-    type: "local"
-
-  container:
-    type: "container"
-    tool: "podman"                    # podman or docker
-    mode: "exec"                      # "exec" (persistent) or "run" (transient)
-    image: "fedora:latest"
-    name: "oortexa-worker"
-    args: ["-i", "--rm"]
-
-  ssh_remote:
-    type: "ssh"
-    ssh:
-      host: "192.168.1.50"
-      user: "dev-user"
-      identity: "~/.ssh/id_rsa"      # Optional
-
-  ssh_container:
-    type: "ssh+container"
-    ssh:
-      host: "my-remote-box"
-      user: "root"
-    container:
-      tool: "docker"
-      image: "node:18"
-      mode: "exec"
-      name: "app-container"
-```
-
-Supported target types: `local`, `ssh`, `container`, `ssh+container`, `compose`, `script`, `ssh+script`.
+| Target Type | Mechanism |
+|---|---|
+| `local` | Executes direct bash commands via `subprocess.run`. |
+| `container` | Wraps commands in `podman exec` or `docker run` using the specified image. |
+| `ssh` | Connects via `fabric` to run commands on a remote host. |
+| `ssh+container` | Tunnels container commands through an SSH connection. |
+| `compose` | Manages execution inside `docker-compose` or `podman-compose` services. |
 
 ---
 
 ## Usage
 
 ```bash
-python3 -m oortexa \
-  --config oortexa.yml \
-  --prompt "Add unit tests for the abstract_tools.py module."
+python3 -m oortexa --config oortexa.yml --prompt "Add unit tests for abstract_tools.py."
 ```
 
-Prompts can also be file paths:
-
-```bash
-python3 -m oortexa --config oortexa.yml --prompt ./task.txt
-```
-
-Enable verbose LLM debugging:
+Enable verbose debugging if the LLM isn't following the plan:
 
 ```bash
 python3 -m oortexa --config oortexa.yml --prompt "..." --debug
@@ -137,27 +100,14 @@ python3 -m oortexa --config oortexa.yml --prompt "..." --debug
 
 ## Features
 
-- **Heterogeneous Provider Support** — Use different LLM APIs for different roles in the graph.
-- **Flexible System Prompts** — Prompts can be literal strings, file paths, or directories (loaded in sorted order).
-- **Cross-platform SSH Execution** — Native SSH and `plink.exe` support.
-- **Containerized Tooling** — Seamless execution inside local or remote containers via Podman/Docker.
-- **Local Execution Mode** — Run tools directly on the host system.
-- **Environment Overrides** — Switch targets via `OORTEXA_TARGET` env var without touching config files.
+- **Heterogeneous Provider Support**: Mix & match LLM APIs for different roles.
+- **Flexible System Prompts**: Load prompts from literal strings, files, or sorted directories.
+- **Native Container Support**: Handles Podman & Docker without separate logic.
+- **Environment Overrides**: Use `OORTEXA_TARGET` to ignore the YAML target config.
 
 ---
 
 ## Project Status
 
-This project is in early development. APIs may change as we iterate.
+OORTExA is in early development. APIs will change as the orchestration logic matures.
 
----
-
-## Contributing
-
-Contributions are welcome! Please open an issue or pull request on [GitHub](https://github.com/ruxven/oortexa).
-
----
-
-## License
-
-MIT — see [LICENSE](LICENSE).

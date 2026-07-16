@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -e
 
 example_name=$1
 if [ -z "$example_name" ]; then
@@ -17,11 +17,6 @@ if [ "list" == "$example_name" ]; then
   exit 0
 fi
 
-if [ ! -f "./examples/${example_name}/oortexa.yml" ]; then
-  echo "Run './rc.setup_example ${example_name}' first!"
-  exit 1
-fi
-
 if [ -d .venv ]; then
   source .venv/bin/activate
 else
@@ -30,9 +25,15 @@ else
   pip install -e .
 fi
 
-debug_arg=""
-if [[ DEBUG -eq 1 ]];then
-  debug_arg="--debug"
+if [ -f "./examples/${example_name}/setup.sh" ]; then
+  pushd "./examples/${example_name}"
+  echo "Running setup!"
+  ./setup.sh
+  popd
 fi
 
-python3 -moortexa --config "./examples/${example_name}/oortexa.yml" ${debug_arg} --prompt "run the script build.sh and report any issues"
+echo ""
+echo "Setup complete! Next Step:"
+
+echo ""
+echo "python3 -moortexa --config \"./examples/${example_name}/oortexa.yml\" --prompt \"run the script build.sh and report any issues\""

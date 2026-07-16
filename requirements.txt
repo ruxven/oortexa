@@ -3,3 +3,4 @@ langchain-openai>=0.3
 langgraph>=0.3
 pyyaml>=6.0
 mcp>=1.0
+fabric==3.2.3

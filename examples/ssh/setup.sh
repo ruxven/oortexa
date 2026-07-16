@@ -142,8 +142,7 @@ if [[ do_scp -eq 1 ]]; then
   scp \
     $IDFILE_ARG \
     -P ${__PORT__} \
-    ./local_demo.c \
-    ./build_src.sh \
+    ./build.sh \
     "${__USER__}@${__HOST__}:${__PATH__}/."  || exit 1
   echo "Files in remote ssh location:"
   ssh \

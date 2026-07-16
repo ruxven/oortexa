@@ -1,0 +1,49 @@
+# OORTExA Configuration for building a project via a Container (e.g. Docker)
+# invoke from the base directory with: python3 -moortexa --config examples/docker/oortexa.yml
+roles:
+  orchestrator:
+    model: "__MODEL__"
+    base_url: "__URL__"
+    api_key: "__KEY__"
+    prompts:
+      - ../prompts/orchestrator.md
+      - ../prompts/executor_tools.md
+
+  executor:
+    model: "__MODEL__"
+    base_url: "__URL__"
+    api_key: "__KEY__"
+    prompts:
+      - ../prompts/executor.md
+      - ../prompts/executor_tools.md
+
+  analyst:
+    model: "__MODEL__"
+    base_url: "__URL__"
+    api_key: "__KEY__"
+    prompts:
+      - ../prompts/analyst.md
+
+# Retrospective directory - where analyst reports are stored locally
+retrospective_dir: "retrospectives"
+
+# container target
+active_target: "docker_build"
+#active_target: "podman_build"
+
+targets:
+  docker_build:
+    type: "container"
+    container:
+      tool: docker
+      name: "__CONTAINER__"
+      mode: run
+      args: [ "--rm", "-v", "./:/build", "-w", "/build" ]
+
+  podman_build:
+    type: "container"
+    container:
+      tool: podman
+      name: "__CONTAINER__"
+      mode: run
+      args: [ "--rm", "-v", "./:/build:z", "-w", "/build" ]

@@ -1,0 +1,64 @@
+# OORTExA Configuration for building via Podman over SSH
+# invoke from the base directory after running setup: 
+# python3 -moortexa --config examples/ssh_podman/oortexa.yml
+
+roles:
+  orchestrator:
+    model: "__MODEL__"
+    base_url: "__URL__"
+    api_key: "__KEY__"
+    prompts:
+      - ../prompts/orchestrator.md
+      - ../prompts/executor_tools.md
+
+  executor:
+    model: "__MODEL__"
+    base_url: "__URL__"
+    api_key: "__KEY__"
+    prompts:
+      - ../prompts/executor.md
+      - ../prompts/executor_tools.md
+
+  analyst:
+    model: "__MODEL__"
+    base_url: "__URL__"
+    api_key: "__KEY__"
+    prompts:
+      - ../prompts/analyst.md
+
+# Retrospective directory — where analyst reports are stored locally
+retrospective_dir: "retrospectives"
+
+active_target: "ssh_podman_build"
+#active_target: "ssh_docker_build"
+
+targets:
+  ssh_podman_build:
+    type: "ssh+container"
+    ssh:
+      host: "__HOST__"
+      user: "__USER__"
+      port: __PORT__
+      identity: "__IDFILE__"
+    container:
+      tool: podman
+      name: "__CONTAINER__"
+      mode: run
+      image: "fedora:latest"
+      args: [ "--rm", "-v", ".:/build:Z", "-w", "/build" ]
+    basedir: "__PATH__"
+
+  ssh_docker_build:
+    type: "ssh+container"
+    ssh:
+      host: "__HOST__"
+      user: "__USER__"
+      port: __PORT__
+      identity: "__IDFILE__"
+    container:
+      tool: docker
+      name: "__CONTAINER__"
+      mode: run
+      image: "fedora:latest"
+      args: [ "--rm", "-v", ".:/build", "-w", "/build" ]
+    basedir: "__PATH__"
