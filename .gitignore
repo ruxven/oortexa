@@ -6,3 +6,4 @@ config.env
 *.o
 *.egg-info/
 *.log.txt
+.opencode

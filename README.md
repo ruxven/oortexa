@@ -3,23 +3,23 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python >=3.10](https://img.shields.io/badge/python-%3E%3D3.10-blue)](pyproject.toml)
 
-OORTExA is a Python-based orchestration framework for collaborative development. It doesn't rely on a single monolithic model; instead, it uses LangGraph to coordinate three distinct roles across heterogeneous LLMs & execution environments.
+OORTExA is a Python-based execution framework for collaborative development.
+It provides an abstracted toolset that moves execution to where the code lives.
+Whether that's local, inside a container, or on a remote machine via SSH—while maintaining persistent sessions.
 
 ---
 
 ## Architecture
 
-OORTExA uses a tripartite graph architecture to separate reasoning from action:
+OORTExA separates execution from intelligence:
 
-- **Orchestrator Node**: A high-level model that plans strategy & routes tasks.
-- **Tool-calling Executor Node**: An engineering-focused model that performs actions using abstracted tools.
-- **Analyst Node**: Summarizes results & performs final verification.
+- **The Core Tools**: A set of abstracted file and shell operations (`bash`, `ls`, `read`, `write`, `grep`, `glob`) that run against a configured **Target**.
+- **MCP Server**: The interface that exposes these tools to external AI agents (like `opencode` or Claude).
+- **Internal Orchestrator**: A built-in LangGraph application used for setup validation and self-contained tasking using multi-role LLMs.
 
 ---
 
 ## Installation
-
-Standard installation requires Python 3.10 or higher. You'll need LangGraph & Fabric for core orchestration:
 
 ```bash
 python3 -m venv .venv
@@ -30,84 +30,142 @@ pip install -e .
 
 ---
 
-## Quickstart
+## Quickstart: Validating your Configuration
 
-The included local example runs a build script that prints the working directory and basic kernel information (i.e., `pwd` and `uname`).
-Running the example setup script will ask a few questions to generate the `oortexa.yml` file from the template `oortexa.yml.base`.
+Use the internal LangGraph application to validate your environment. This self-contained orchestrator uses the `roles` and `targets` defined in your YAML to perform a "smoke test."
+
+First, run the example setup to generate oortexa.yml
 
 ```bash
-# Run the example setup to generate oortexa.yml
 bash rc.setup_example local
+```
 
-# Once the example is configured, Execute task:
+Each of the examples contains a setup script which will ask for model information and target specific information.
+
+Once the configuration file is generated, validate the setup via the internal LangGraph orchestrator:
+
+```bash
+bash rc.run_example local
+# which will run:
 python3 -m oortexa --config examples/local/oortexa.yml \
-  --prompt "Build the project & report any issues."
+  --prompt "Build the project & report the result."
+```
+
+If debugging, do:
+
+```bash
+# Optional for viewing trace on LangSmith
+export LANGSMITH_TRACING=true
+export LANGSMITH_ENDPOINT=https://api.smith.langchain.com
+export LANGSMITH_API_KEY=lsv2_...
+export LANGSMITH_PROJECT="my_cool_project"
+
+python3 -m oortexa --config examples/local/oortexa.yml \
+  --prompt "Build the project & report the result." \
+  --debug
 ```
 
 ---
 
-## Configuration
+## Production: MCP Server & Persistence
 
-Control OORTExA via `oortexa.yml`. Each node in the graph can point to a different provider, cost center, or capability profile.
+The primary way to use OORTExA is as an MCP (Model Context Protocol) server. This exposes the execution environment to external agents.
 
-### Heterogeneous LLM Setup
-
-You don't have to use expensive cloud models for every step.
-Local models running via LM Studio at `http://localhost:1234` can handle file operations while a larger GPT-4o instance manages the high-level plan.
-
-```yaml
-roles:
-  orchestrator:
-    model: "gpt-4o"
-    base_url: "https://api.openai.com/v1"
-    api_key: "${OPENAI_API_KEY}"
-    prompts: ["prompts/orchestrator/"]
-  executor:
-    model: "llama-3.1"
-    base_url: "http://localhost:1234/v1"
-    api_key: "lm-studio"
-    prompts: ["You are a tool executor..."]
+### 1. Standard Mode (OORTExA as a Tool)
+For local development where persistent state between chat turns isn't critical:
+```bash
+python3 -m oortexa.mcp --config examples/local/oortexa.yml
 ```
 
-### Execution Targets
+#### Standard Mode MCP Configuration
 
-OORTExA moves tool execution to where the code lives.
-Setting the `active_target` or the `OORTEXA_TARGET` environment variable switches the entire toolset from local execution to containerized or remote SSH environments.
+```json
+{
+  "mcpServers": {
+    "oortexa": {
+      "command": "/usr/bin/python3",
+      "args": [
+        "-m",
+        "oortexa.mcp",
+        "--config",
+        "/path/to/examples/ssh/oortexa.yml"
+      ],
+    }
+  }
+}
+```
+
+### 2. Persistent Mode (Daemon + Bridge)
+Recommended for remote SSH or containerized workflows. The **Daemon** holds the connection open, while the **Bridge** handles MCP requests.
+
+**Step 1: Start the Daemon** (manages persistence)
+```bash
+python3 -m oortexa.mcp --daemon --config examples/ssh/oortexa.yml
+```
+
+**Step 2: Connect the Bridge** (configured in your MCP client)
+```bash
+python3 -m oortexa.mcp --bridge
+```
+
+#### Persistent Mode MCP Configuration
+
+```json
+{
+  "mcpServers": {
+    "oortexa": {
+      "command": "/usr/bin/python3",
+      "args": [
+        "-m",
+        "oortexa.mcp",
+        "--bridge"
+      ],
+    }
+  }
+}
+```
+
+---
+
+## OORTExA Remote Skill
+
+The skill for using the OORTExA MCP tools is located in `skills/oortexa_remote/SKILL.md` and is focused strictly on the tools the model can invoke using the MCP.
+
+---
+
+## Configuration Reference: `oortexa.yml`
+
+### `targets` (Universal)
+Defines **where** the tools operate.
+This is used by the LangGraph App, MCP Server, and Daemon.
+Multiple targets can be defined in one configuration file, but only one is active.
+The active target is selected by the `active_target` attribute or the environment variable `OORTEXA_TARGET`
 
 | Target Type | Mechanism |
 |---|---|
 | `local` | Executes direct bash commands via `subprocess.run`. |
-| `container` | Wraps commands in `podman exec` or `docker run` using the specified image. |
+| `container` | Wraps commands in `podman exec` or `docker run`. |
 | `ssh` | Connects via `fabric` to run commands on a remote host. |
-| `ssh+container` | Tunnels container commands through an SSH connection. |
-| `compose` | Manages execution inside `docker-compose` or `podman-compose` services. |
+| `ssh+container` | Connects via fabric to run commands inside a container on a remote host |
+| `compose` | Manages execution inside `docker-compose` services. |
+
+### `roles` (Internal App Only)
+Defines **who** is thinking. This section is strictly for the internal `python3 -m oortexa` application and is ignored by the MCP server/bridge.
+
+| Role Type | Description |
+|---|---|
+| `orchestrator` | Creates a plan and delegates tasks to the executor to use tools. |
+| `executor` | Uses tools and reports the output. |
+| `analyst` | Reviews output from the executor and reports the outcome. |
+
+Retrospectives are written by the analyst role using the `oortexa_write_retrospective` tool to the location specified by the `retropective_dir` attribute.
+
+Each role has a set of attributes:
+| Attribute Name | Description |
+|---|---|
+| `model` | Model identifier in provider |
+| `base_url` | Provider endpoint |
+| `api_key` | Endpoint API key, can be blank if using a local model |
+| `prompts` | A list of strings or file paths or directories containing system prompt text |
 
 ---
-
-## Usage
-
-```bash
-python3 -m oortexa --config oortexa.yml --prompt "Add unit tests for abstract_tools.py."
-```
-
-Enable verbose debugging if the LLM isn't following the plan:
-
-```bash
-python3 -m oortexa --config oortexa.yml --prompt "..." --debug
-```
-
----
-
-## Features
-
-- **Heterogeneous Provider Support**: Mix & match LLM APIs for different roles.
-- **Flexible System Prompts**: Load prompts from literal strings, files, or sorted directories.
-- **Native Container Support**: Handles Podman & Docker without separate logic.
-- **Environment Overrides**: Use `OORTEXA_TARGET` to ignore the YAML target config.
-
----
-
-## Project Status
-
-OORTExA is in early development. APIs will change as the orchestration logic matures.
-

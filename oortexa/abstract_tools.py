@@ -20,7 +20,27 @@ class BaseTarget:
         self.config = config
         self.basedir = config.get("basedir")
 
+        # Resolve basedir relative to the config file's directory if provided
+        config_path = ToolContext._config.get("_loaded_from")
+
+        if not self.basedir:
+            if config_path and config_path not in ["DEFAULT_FALLBACK", "unknown"]:
+                self.basedir = os.path.dirname(config_path)
+            else:
+                self.basedir = os.getcwd()
+        elif not os.path.isabs(self.basedir):
+            if config_path and config_path not in ["DEFAULT_FALLBACK", "unknown"]:
+                config_dir = os.path.dirname(config_path)
+                self.basedir = os.path.normpath(os.path.join(config_dir, self.basedir))
+            else:
+                self.basedir = os.path.normpath(os.path.abspath(self.basedir))
+
+        if self.basedir:
+            self.basedir = os.path.normpath(os.path.abspath(self.basedir))
+
     def _prepare_cmd(self, cmd: str) -> str:
+        if self.basedir:
+            return f"cd {shlex.quote(self.basedir)} && {cmd}"
         return cmd
 
 
@@ -29,21 +49,9 @@ class LocalTarget(BaseTarget):
         exec_cmd = self._prepare_cmd(cmd)
         full_cmd = ["bash", "-c", exec_cmd]
 
-        # Ensure basedir exists locally before running subprocess, or default to None
-        cwd = self.basedir
-        if cwd and not os.path.isabs(cwd):
-            # If relative, it's relative to the app's current directory
-            cwd = os.path.abspath(cwd)
+        _logger.debug(f"Local run: {full_cmd} (cwd: {self.basedir})")
 
-        _logger.debug(f"Local run: {full_cmd} (cwd: {cwd})")
-
-        # If the directory doesn't exist locally (which is common for container-only paths),
-        # we shouldn't attempt to use it as the subprocess CWD.
-        actual_cwd = cwd if cwd and os.path.exists(cwd) else None
-
-        res = subprocess.run(
-            full_cmd, input=input_data, capture_output=True, text=True, cwd=actual_cwd
-        )
+        res = subprocess.run(full_cmd, input=input_data, capture_output=True, text=True)
         return {"stdout": res.stdout, "stderr": res.stderr, "exit_code": res.returncode}
 
 
@@ -116,15 +124,22 @@ class ToolContext:
             config_path = os.environ.get("OORTEXA_CONFIG", "oortexa.yml")
 
         if os.path.exists(config_path):
+            abs_config_path = os.path.abspath(config_path)
             try:
-                with open(config_path, "r") as f:
+                with open(abs_config_path, "r") as f:
                     cls._config = yaml.safe_load(f)
+                _logger.info(f"Loaded OORTExA config from: {abs_config_path}")
+                cls._config["_loaded_from"] = abs_config_path
             except yaml.YAMLError as e:
-                raise ValueError(f"Failed to parse config file {config_path}: {e}")
+                raise ValueError(f"Failed to parse config file {abs_config_path}: {e}")
         else:
+            _logger.warning(
+                f"Config file {config_path} not found. Using default local target."
+            )
             cls._config = {
                 "active_target": "local",
                 "targets": {"local": {"type": "local"}},
+                "_loaded_from": "DEFAULT_FALLBACK",
             }
 
     @classmethod
@@ -132,12 +147,19 @@ class ToolContext:
         if cls._target_cache:
             return cls._target_cache
 
-        active = os.environ.get(
+        active_name = os.environ.get(
             "OORTEXA_TARGET", cls._config.get("active_target", "local")
         )
         targets = cls._config.get("targets", {})
-        cfg = targets.get(active, cls._config.get("target", {"type": "local"}))
 
+        if active_name in targets:
+            cfg = targets[active_name]
+        elif "target" in cls._config:
+            cfg = cls._config["target"]
+        else:
+            cfg = {"type": "local"}
+
+        _logger.debug(f"Target selected: {active_name} | config: {cfg}")
         t_type = cfg.get("type", "local")
 
         # Transport
