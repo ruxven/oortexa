@@ -3,6 +3,7 @@ import argparse
 import json
 import socket
 import asyncio
+import logging
 from mcp.server.fastmcp import FastMCP, Context
 from oortexa.abstract_tools import abstract_tools, ToolContext, _logger
 
@@ -11,7 +12,18 @@ DAEMON_HOST = "127.0.0.1"
 DAEMON_PORT = 8999
 
 
+def setup_logging(debug: bool = False):
+    level = logging.DEBUG if debug else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    _logger.setLevel(level)
+
+
 def call_daemon(tool_name: str, args: dict):
+    _logger.debug(f"Bridge: Calling daemon tool '{tool_name}' with args {args}")
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.connect((DAEMON_HOST, DAEMON_PORT))
         payload = {"tool": tool_name, "args": args}
@@ -52,6 +64,10 @@ def ask_oortexa(
     - glob: Find files matching 'payload' glob.
     - status: Show current target and config path.
     """
+    _logger.debug(
+        f"Tool: ask_oortexa(action='{action}', payload='{payload}', path='{path}')"
+    )
+
     if action == "status":
         active = os.environ.get(
             "OORTEXA_TARGET", ToolContext._config.get("active_target", "local")
@@ -110,6 +126,7 @@ def ask_oortexa(
     except ConnectionRefusedError:
         return "Error: OORTExA daemon is not running. Start it with '--daemon'."
     except Exception as e:
+        _logger.exception(f"Unexpected error in ask_oortexa: {e}")
         return f"Unexpected error: {str(e)}"
 
 
@@ -120,6 +137,8 @@ class ToolDaemon:
         self.port = port
 
     async def handle_client(self, reader, writer):
+        addr = writer.get_extra_info("peername")
+        _logger.info(f"Daemon: Connection from {addr}")
         try:
             data = await reader.read(65536)
             if not data:
@@ -128,14 +147,20 @@ class ToolDaemon:
             tool_name = request.get("tool")
             args = request.get("args", {})
 
+            _logger.info(f"Daemon: Executing '{tool_name}' for {addr}")
+            _logger.debug(f"Daemon: Args: {args}")
+
             target_tool = next((t for t in abstract_tools if t.name == tool_name), None)
             if not target_tool:
+                _logger.error(f"Daemon: Tool {tool_name} not found")
                 response = {"status": "error", "message": f"Tool {tool_name} not found"}
             else:
                 try:
                     result = target_tool.invoke(args)
                     response = {"status": "ok", "result": result}
+                    _logger.debug(f"Daemon: Success: {tool_name}")
                 except Exception as e:
+                    _logger.error(f"Daemon: Tool execution failed: {e}")
                     response = {"status": "error", "message": str(e)}
 
             writer.write(json.dumps(response).encode())
@@ -145,10 +170,11 @@ class ToolDaemon:
         finally:
             writer.close()
             await writer.wait_closed()
+            _logger.debug(f"Daemon: Connection closed for {addr}")
 
     async def run(self):
         server = await asyncio.start_server(self.handle_client, self.host, self.port)
-        print(f"OORTExA Daemon serving on {self.host}:{self.port}")
+        _logger.info(f"OORTExA Daemon serving on {self.host}:{self.port}")
         async with server:
             await server.serve_forever()
 
@@ -164,13 +190,18 @@ if __name__ == "__main__":
         action="store_true",
         help="Start as a thin MCP bridge to an existing daemon",
     )
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     args, unknown = parser.parse_known_args()
 
+    setup_logging(args.debug)
     config_path = args.config or os.getenv("OORTEXA_CONFIG") or "oortexa.yml"
 
     if args.daemon:
         if os.path.exists(config_path):
             ToolContext.load_config(config_path)
+            _logger.info(f"Daemon: Loaded configuration from {config_path}")
+        else:
+            _logger.warning(f"Daemon: Config file {config_path} not found. Using defaults.")
 
         async def run_daemon():
             daemon = ToolDaemon()
@@ -182,14 +213,17 @@ if __name__ == "__main__":
         try:
             asyncio.run(run_daemon())
         except KeyboardInterrupt:
-            print("\nDaemon shutting down...")
+            _logger.info("Daemon shutting down via KeyboardInterrupt...")
     elif args.bridge:
+        _logger.info("Bridge: Starting MCP in bridge mode")
         os.environ["OORTEXA_BRIDGE"] = "1"
         mcp.run()
     else:
         # Standard MCP direct mode
+        _logger.info("Standard: Starting direct MCP mode")
         if os.path.exists(config_path):
             ToolContext.load_config(config_path)
+            _logger.info(f"Standard: Loaded configuration from {config_path}")
         try:
             mcp.run()
         finally:
