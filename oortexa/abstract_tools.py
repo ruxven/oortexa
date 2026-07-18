@@ -20,24 +20,6 @@ class BaseTarget:
         self.config = config
         self.basedir = config.get("basedir")
 
-        # Resolve basedir relative to the config file's directory if provided
-        config_path = ToolContext._config.get("_loaded_from")
-
-        if not self.basedir:
-            if config_path and config_path not in ["DEFAULT_FALLBACK", "unknown"]:
-                self.basedir = os.path.dirname(config_path)
-            else:
-                self.basedir = os.getcwd()
-        elif not os.path.isabs(self.basedir):
-            if config_path and config_path not in ["DEFAULT_FALLBACK", "unknown"]:
-                config_dir = os.path.dirname(config_path)
-                self.basedir = os.path.normpath(os.path.join(config_dir, self.basedir))
-            else:
-                self.basedir = os.path.normpath(os.path.abspath(self.basedir))
-
-        if self.basedir:
-            self.basedir = os.path.normpath(os.path.abspath(self.basedir))
-
     def _prepare_cmd(self, cmd: str) -> str:
         if self.basedir:
             return f"cd {shlex.quote(self.basedir)} && {cmd}"
@@ -49,7 +31,7 @@ class LocalTarget(BaseTarget):
         exec_cmd = self._prepare_cmd(cmd)
         full_cmd = ["bash", "-c", exec_cmd]
 
-        _logger.debug(f"Local run: {full_cmd} (cwd: {self.basedir})")
+        _logger.debug(f"Local run: {full_cmd}")
 
         res = subprocess.run(full_cmd, input=input_data, capture_output=True, text=True)
         return {"stdout": res.stdout, "stderr": res.stderr, "exit_code": res.returncode}
@@ -58,8 +40,6 @@ class LocalTarget(BaseTarget):
 class SSHTarget(BaseTarget):
     def run(self, cmd: str, input_data: Optional[str] = None) -> Dict[str, Any]:
         exec_cmd = self._prepare_cmd(cmd)
-        if self.basedir:
-            exec_cmd = f"cd {self.basedir} && {exec_cmd}"
 
         ssh_cfg = self.config.get("ssh", {})
         conn = ToolContext._get_ssh_connection(ssh_cfg)
@@ -83,12 +63,15 @@ class ContainerWrapper:
         self.c_mode = self.cfg.get("mode", "exec")
         self.c_image = self.cfg.get("image", "fedora:latest")
         self.c_args = self.cfg.get("args", [])
+        self.basedir = config.get("basedir")
 
     def run(self, cmd: str, input_data: Optional[str] = None) -> Dict[str, Any]:
-        exec_cmd = self.inner._prepare_cmd(cmd)
-
         target_ref = self.c_name if self.c_mode == "exec" else self.c_image
-        wrapped_cmd = f"{self.c_tool} {self.c_mode} {' '.join(self.c_args)} {target_ref} bash -c {shlex.quote(exec_cmd)}"
+        
+        # Use -w for workspace if basedir is provided
+        ws_arg = f"-w {shlex.quote(self.basedir)}" if self.basedir else ""
+        
+        wrapped_cmd = f"{self.c_tool} {self.c_mode} {ws_arg} {' '.join(self.c_args)} {target_ref} bash -c {shlex.quote(cmd)}"
         _logger.debug(f"ContainerWrapper wrapped_cmd: {wrapped_cmd}")
         return self.inner.run(wrapped_cmd, input_data)
 
@@ -100,14 +83,18 @@ class ComposeWrapper:
         self.tool = config.get("tool", "docker-compose")
         self.mode = config.get("container", {}).get("mode", "exec")
         self.service = config.get("service")
+        self.basedir = config.get("basedir")
         compose_file = config.get("file")
         self.prefix = f"{self.tool} -f {compose_file}" if compose_file else self.tool
 
     def run(self, cmd: str, input_data: Optional[str] = None) -> Dict[str, Any]:
-        exec_cmd = self.inner._prepare_cmd(cmd)
+        # Compose doesn't have a direct -w flag in 'exec' in all versions, 
+        # so we use cd inside the container.
+        ws_cmd = f"cd {shlex.quote(self.basedir)} && " if self.basedir else ""
+        full_inner_cmd = f"{ws_cmd}{cmd}"
 
         wrapped = (
-            f"{self.prefix} {self.mode} {self.service} bash -c {shlex.quote(exec_cmd)}"
+            f"{self.prefix} {self.mode} {self.service} bash -c {shlex.quote(full_inner_cmd)}"
         )
         return self.inner.run(wrapped, input_data)
 
